@@ -86,9 +86,9 @@ async def generate(
 @app.post("/rebuild_index")
 async def rebuild_index():
     """
-    遍历 PRELOAD_DIR 下所有 .wav，计算 embedding 并用 FAISS 建立索引。
+    遍历 PRELOAD_DIR 下所有 .wav, 计算 embedding 并用 FAISS 建立索引。
     会同时生成 INDEX_PATH 和 ORDER_FILE 两个文件。
-    返回 {"built": n}，n 为成功索引的文件数。
+    返回 {"built": n}, n 为成功索引的文件数。
     """
     files = sorted(PRELOAD_DIR.glob("*.wav"))
     if not files:
@@ -156,3 +156,21 @@ async def api_find_similar(
 
     top_file = PRELOAD_DIR / matches[0]
     return FileResponse(str(top_file), media_type="audio/wav", filename=matches[0])
+
+# ---------- 循环录音专用 API ----------
+@app.post("/loop_audio")
+async def loop_audio(
+    audio_file: UploadFile = File(...)
+):
+    """
+    只把上传的 WAV 原样返回。    
+    后端直接将 User 这一段音频发回去。之后你可以改成“/loop_audio”做生成/检索，
+    这里先简单实现“回显”功能以便调试前端循环逻辑。
+    """
+    # 把上传的音频临时存盘
+    tmp_path = UPLOAD_DIR / audio_file.filename
+    with open(tmp_path, "wb") as f:
+        f.write(await audio_file.read())
+
+    # 直接把刚才保存的文件原样返回
+    return FileResponse(str(tmp_path), media_type="audio/wav", filename=audio_file.filename)

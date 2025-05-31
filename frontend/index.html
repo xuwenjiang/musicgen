@@ -1,45 +1,117 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>MusicGen UX App</title>
-  <link rel="stylesheet" href="style.css" />
-  <script src="libs/recorder.js"></script>
-</head>
-<body>
-  <h1>MusicGen UX App</h1>
-  <div id="app">
-    <textarea id="description" placeholder="Enter a description (e.g. ‘rock cello’)"></textarea>
-    <div>
-      <button id="record-btn">🎙️ Start Recording</button>
-      <button id="stop-btn" disabled>⏹️ Stop Recording</button>
-      <button id="generate-btn" disabled>🎵 Generate Music</button>
-      <button id="rebuild-btn">🔄 Rebuild Index</button>
-      <button id="find-btn">🔍 Find Similar</button>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>MusicGen UX App</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="libs/recorder.js"></script>
+  </head>
+  <body>
+    <h1>MusicGen UX App</h1>
+    <div id="app">
+      <!-- =======================
+           普通录音 & 生成/检索 区域（上半部分）
+           ======================= -->
+      <div class="section normal-controls">
+        <!-- 文本描述 -->
+        <textarea
+          id="description"
+          placeholder="Enter a description (e.g. 'rock cello')"
+        ></textarea>
+
+        <!-- 按钮组：普通录音 / 生成 / 索引 / 查相似 -->
+        <div class="button-group">
+          <button id="record-btn">🎙️ Start Recording</button>
+          <button id="stop-btn" disabled>⏹️ Stop Recording</button>
+          <button id="generate-btn" disabled>🎵 Generate Music</button>
+          <button id="rebuild-btn">🔄 Rebuild Index</button>
+          <button id="find-btn">🔍 Find Similar</button>
+        </div>
+
+        <!-- 上传音频 + 设置生成时长 -->
+        <div class="file-duration-group">
+          <label for="file-upload">
+            Upload MP3/WAV:
+            <input type="file" id="file-upload" accept=".mp3,.wav" />
+          </label>
+          <label for="duration">
+            Audio Length (seconds):
+            <input type="number" id="duration" value="5" min="1" max="30" />
+          </label>
+        </div>
+
+        <!-- 用于播放用户录制/上传的原始声音 -->
+        <div id="input-player-container">
+          <p>Your Audio:</p>
+          <audio id="input-player" controls></audio>
+        </div>
+
+        <!-- *新增*：生成音乐后的播放区域 -->
+        <div id ="generate-player-container">
+          <p>Generated Audio:</p>
+          <audio id="generate-player" controls></audio>
+        </div>
+      </div>
+
+      <!-- =======================
+           循环录音 & 实时分段 区域（下半部分）
+           ======================= -->
+      <div class="section loop-controls">
+        <!-- 循环录音 开始/停止 按钮 -->
+        <div class="button-group">
+          <button id="start-loop-btn">▶️ Start Loop Recording</button>
+          <button id="stop-loop-btn" disabled>⏹️ Stop Loop Recording</button>
+        </div>
+
+        <!-- 三个滑块：阈值 / 静默时长 / 最大时长 -->
+        <div class="slider-group">
+          <div class="slider-item">
+            <label for="silence-threshold">Silence Threshold (RMS):</label>
+            <input
+              type="range"
+              id="silence-threshold"
+              min="0"
+              max="0.1"
+              step="0.001"
+              value="0.01"
+            />
+            <span id="silence-threshold-display">0.010</span>
+          </div>
+          <div class="slider-item">
+            <label for="silence-duration">Silence Duration (ms):</label>
+            <input
+              type="range"
+              id="silence-duration"
+              min="0"
+              max="5000"
+              step="100"
+              value="1500"
+            />
+            <span id="silence-duration-display">1500</span>
+          </div>
+          <div class="slider-item">
+            <label for="max-segment-ms">Max Segment (ms):</label>
+            <input
+              type="range"
+              id="max-segment-ms"
+              min="1000"
+              max="10000"
+              step="100"
+              value="5000"
+            />
+            <span id="max-segment-ms-display">5000</span>
+          </div>
+        </div>
+
+        <!-- 循环录音时仅播放“结果” -->
+        <div class="loop-result-player" style="margin-top:20px;">
+          <p>Result Audio:</p>
+          <audio id="audio-player" controls></audio>
+        </div>
+      </div>
     </div>
 
-    <div>
-      <label for="file-upload">Upload MP3/WAV:</label>
-      <input type="file" id="file-upload" accept=".mp3,.wav" />
-    </div>
-
-    <div>
-      <label for="duration">Audio Length (seconds):</label>
-      <input type="number" id="duration" value="5" min="1" max="30" />
-    </div>
-
-    <!-- 新增：用于播放用户录制的原始声音 -->
-    <div id="input-player-container">
-      <p>Your Audio:</p>
-      <audio id="input-player" controls></audio>
-    </div>
-
-    <div style="margin-top:20px;">
-      <p>Result Audio:</p>
-      <audio id="audio-player" controls></audio>
-    </div>
-  </div>
-  <script src="app.js"></script>
-</body>
+    <script src="app.js"></script>
+  </body>
 </html>
