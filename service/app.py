@@ -11,7 +11,7 @@ import asyncio
 from pathlib import Path
 
 from model_handler import generate_audio
-from sim_utils import build_index, find_similar
+from sim_utils import build_index, find_similar, build_slice_index
 
 # ---------- 初始化 FastAPI ----------
 app = FastAPI()
@@ -29,9 +29,13 @@ app.add_middleware(
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-PRELOAD_DIR = Path("preloaded")            # 存放预加载 wav 的目录
-INDEX_PATH = Path("audio_index.faiss")     # FAISS 索引文件路径
-ORDER_FILE = Path("file_order.txt")        # 对应文件名列表
+PRELOAD_DIR = Path("preloaded")                     # 存放预加载 wav 的目录
+INDEX_PATH = Path("audio_index.faiss")              # FAISS 索引文件路径
+ORDER_FILE = Path("file_order.txt")                 # 对应文件名列表
+SLICE_INDEX_PATH = Path("audio_slice_index.faiss")  # 切片 FAISS 索引文件路径
+SLICE_MAP_PATH = Path("slice_map.json")             # 切片索引映射文件路径
+SLICE_WINDOW_SIZE = 1.0                             # 切片窗口大小（秒）
+SLICE_HOP_SIZE = 0.5                                # 切片帧移大小（秒）
 
 # ---------- 音乐生成接口 ----------
 @app.post("/generate")
@@ -157,7 +161,25 @@ async def api_find_similar(
     top_file = PRELOAD_DIR / matches[0]
     return FileResponse(str(top_file), media_type="audio/wav", filename=matches[0])
 
-# ---------- 循环录音专用 API ----------
+# ---------- 循环录音测试 API ----------
+@app.post("/echo")
+async def echo(
+    audio_file: UploadFile = File(...)
+):
+    """
+    只把上传的 WAV 原样返回。    
+    后端直接将 User 这一段音频发回去。
+    这里先简单实现“回显”功能以便调试前端循环逻辑。
+    """
+    # 把上传的音频临时存盘
+    tmp_path = UPLOAD_DIR / audio_file.filename
+    with open(tmp_path, "wb") as f:
+        f.write(await audio_file.read())
+
+    # 直接把刚才保存的文件原样返回
+    return FileResponse(str(tmp_path), media_type="audio/wav", filename=audio_file.filename)
+
+# ---------- 循环录音 API ----------
 @app.post("/loop_audio")
 async def loop_audio(
     audio_file: UploadFile = File(...)
@@ -174,3 +196,18 @@ async def loop_audio(
 
     # 直接把刚才保存的文件原样返回
     return FileResponse(str(tmp_path), media_type="audio/wav", filename=audio_file.filename)
+
+# 新增：切片索引重建路由
+@app.post("/rebuild_slice_index")
+async def rebuild_slice_index():
+    try:
+        build_slice_index(
+            preload_dir=str(PRELOAD_DIR),
+            index_path=str(INDEX_PATH),
+            map_path=str(SLICE_MAP_PATH),
+            window_size=SLICE_WINDOW_SIZE,
+            hop_size=SLICE_HOP_SIZE
+        )
+        return {"detail": "Slice index rebuilt successfully."}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)

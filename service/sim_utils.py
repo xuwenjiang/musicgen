@@ -4,6 +4,7 @@ import faiss
 import numpy as np
 import soundfile as sf
 import librosa
+import json
 from transformers import ClapProcessor, ClapModel
 from pathlib import Path
 import torch
@@ -79,6 +80,70 @@ def build_index(preload_dir: str, index_path: str = "audio_index.faiss") -> list
 
     return [p.name for p in files]
 
+def build_slice_index(
+    preload_dir: str,
+    index_path: str = "audio_slice_index.faiss",
+    map_path: str = "slice_map.json",
+    window_size: float = 1.0,
+    hop_size: float = 1.0
+) -> None:
+    """
+    对 preload_dir 下所有 .wav 做“1s 切片 + CLAP embed + FAISS 内积索引”，
+    并把索引保存到 index_path，把切片映射 (slice_map) 保存到 map_path (JSON)。
+
+    切片策略：以 window_size 秒为一段，帧移 hop_size 秒。例如 window=1s, hop=1s。
+    """
+    preload_path = Path(preload_dir)
+    wav_files = sorted(preload_path.glob("*.wav"))
+    if not wav_files:
+        raise ValueError(f"目录 {preload_dir} 下没有找到任何 .wav 文件。")
+
+    all_embeddings = []
+    slice_map = []  # 形如 [{"filename": ..., "start_time": ...}, ...]
+
+    for wav_path in wav_files:
+        # 加载整个 wav
+        wav, sr = sf.read(str(wav_path))  # wav 形状 (T,) 或 (T, C)
+        if wav.ndim > 1:
+            wav = wav[:, 0]  # 取第一声道
+
+        duration = len(wav) / sr  # 秒数
+        num_windows = int(np.floor((duration - window_size) / hop_size)) + 1
+        # 对每个窗口切片
+        for i in range(num_windows):
+            start_time_sec = i * hop_size
+            start_sample = int(start_time_sec * sr)
+            end_sample = start_sample + int(window_size * sr)
+
+            # 注意：最后一段可能需要截断或填零
+            if end_sample > len(wav):
+                clip = wav[start_sample:].copy()
+                pad_len = end_sample - len(wav)
+                clip = np.concatenate([clip, np.zeros(pad_len, dtype=wav.dtype)])
+            else:
+                clip = wav[start_sample:end_sample]
+
+            # 这里用你原来的 _embed_wave
+            emb = _embed_wave(clip, sr)
+            all_embeddings.append(emb)
+            slice_map.append({
+                "filename": wav_path.name,
+                "start_time": round(start_time_sec, 3)
+            })
+            
+    # 整理成 numpy 数组
+    xb = np.stack(all_embeddings, axis=0).astype("float32")  # (M, D)
+    D = xb.shape[1]
+
+    # 建立 FAISS 索引
+    index = faiss.IndexFlatIP(D)
+    index.add(xb)
+    faiss.write_index(index, index_path)
+    print(f"切片索引已保存到 {index_path}, 共索引 {xb.shape[0]} 段切片。")
+
+    with open(map_path, "w", encoding="utf-8") as f:
+        json.dump(slice_map, f, ensure_ascii=False, indent=2)
+    print(f"slice_map 已保存到 {map_path}，共 {len(slice_map)} 条记录。")
 
 def find_similar(
     query_path: str,
@@ -107,3 +172,76 @@ def find_similar(
     scores = D[0].tolist()
 
     return matches, scores
+
+def query_slices_from_index(
+    query_wav_path: str,
+    index_path: str = "audio_slice_index.faiss",
+    map_path: str = "slice_map.json",
+    window_size: float = 1.0,
+    hop_size: float = 1.0,
+    top_k: int = 1
+):
+    """
+    给一个 query_wav(长度 ≤ 5 秒)，按 1s 切片(hop=1s) → embed → FAISS 检索 → 输出每段最相似预置切片的信息。
+
+    top_k: 每段想要返回多少个相似结果(这里我们常用 k=1)。
+    返回: 一个 list, 每个元素格式为 [(filename, start_time, similarity_score), ...]
+    """
+
+    # 1. 加载 slice_map
+    with open(map_path, "r", encoding="utf-8") as f:
+        slice_map = json.load(f)  # list of {"filename": "...", "start_time": ...}
+
+    # 2. 读取 FAISS 索引
+    index = faiss.read_index(index_path)
+
+    # 3. 读取 query wav
+    wav, sr = sf.read(query_wav_path)
+    if wav.ndim > 1:
+        wav = wav[:, 0]
+    duration = len(wav) / sr
+
+    # 4. 切片
+    all_query_embs = []
+    clip_infos = []  # 记录每段对应原 wav 的 (start_sample, end_sample)
+    num_windows = int(np.floor((duration - window_size) / hop_size)) + 1
+    for i in range(num_windows):
+        start_time_sec = i * hop_size
+        start_sample = int(start_time_sec * sr)
+        end_sample = start_sample + int(window_size * sr)
+
+        if end_sample > len(wav):
+            clip = wav[start_sample:].copy()
+            pad_len = end_sample - len(wav)
+            clip = np.concatenate([clip, np.zeros(pad_len, dtype=wav.dtype)])
+        else:
+            clip = wav[start_sample:end_sample]
+
+        emb = _embed_clip(clip, sr)
+        all_query_embs.append(emb)
+        clip_infos.append((start_time_sec, window_size))
+
+    if not all_query_embs:
+        print("query wav 太短，切不出 1 秒片段")
+        return []
+
+    xb = np.stack(all_query_embs, axis=0).astype("float32")  # (N, D)
+
+    # 5. FAISS search
+    D, I = index.search(xb, top_k)  # I: (N, top_k), D: (N, top_k) 相似度值
+    results = []
+    for i in range(xb.shape[0]):  # 对每个切片
+        slice_results = []
+        for j in range(top_k):
+            idx = int(I[i, j])        # 在 slice_map 中的下标
+            score = float(D[i, j])    # 相似度
+            info = slice_map[idx]     # {"filename": "...", "start_time": ...}
+            slice_results.append((
+                info["filename"],
+                info["start_time"],
+                score
+            ))
+        results.append(slice_results)
+
+    # 返回一个形如 [ [(f1, t1, s1)], [(f2, t2, s2)], ... ] 的列表
+    return results

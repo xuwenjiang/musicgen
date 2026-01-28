@@ -13,6 +13,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const generatePlayer = document.getElementById("generate-player"); // 普通生成结果播放器
   const durationInput = document.getElementById("duration");
   const rebuildBtn = document.getElementById("rebuild-btn");
+  const rebuildSliceBtn = document.getElementById("rebuild-slice-btn");
   const findBtn = document.getElementById("find-btn");
 
   // —— 循环录音 相关 DOM —— 
@@ -21,13 +22,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // —— 与滑块（调整参数）相关 —— 
   const silenceThresholdInput = document.getElementById("silence-threshold");
-  const silenceDurationInput  = document.getElementById("silence-duration");
-  const maxSegmentMsInput     = document.getElementById("max-segment-ms");
+  const silenceDurationInput = document.getElementById("silence-duration");
+  const maxSegmentMsInput = document.getElementById("max-segment-ms");
 
   // 对应滑块右侧的数值展示 <span> 
   const silenceThresholdDisplay = document.getElementById("silence-threshold-display");
-  const silenceDurationDisplay  = document.getElementById("silence-duration-display");
-  const maxSegmentMsDisplay     = document.getElementById("max-segment-ms-display");
+  const silenceDurationDisplay = document.getElementById("silence-duration-display");
+  const maxSegmentMsDisplay = document.getElementById("max-segment-ms-display");
 
   // 在页面载入时，给三个 <input type="range"> 绑定 “实时更新右侧 <span>” 的逻辑——
   silenceThresholdInput.addEventListener("input", () => {
@@ -44,15 +45,15 @@ document.addEventListener("DOMContentLoaded", () => {
   // —— 到此为止，滑块联动显示部分完成 —— 
 
   // —— 其它循环录音所需的全局变量 —— 
-  let loopStream = null;          
-  let loopAudioContext = null;    
-  let loopRecorder = null;        
-  let analyserNode = null;        
-  let loopDetectInterval = null;  
+  let loopStream = null;
+  let loopAudioContext = null;
+  let loopRecorder = null;
+  let analyserNode = null;
+  let loopDetectInterval = null;
 
-  let wasSpeaking = false;        
-  let segmentStartTime = null;    
-  let silentSince = null;         
+  let wasSpeaking = false;
+  let segmentStartTime = null;
+  let silentSince = null;
 
   function updateGenerateButtonState() {
     genBtn.disabled = !(desc.value.trim() || audioBlob || uploadedFile);
@@ -160,6 +161,24 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // 重建切片索引
+  rebuildSliceBtn.addEventListener("click", async () => {
+    try {
+      const resp = await fetch("http://localhost:8000/rebuild_slice_index", {
+        method: "POST",
+      });
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.error || "unknown");
+      }
+      const data = await resp.json();
+      alert(data.detail || "Slice index rebuilt successfully.");
+    } catch (e) {
+      console.error("rebuild slice index error:", e);
+      alert("重建切片索引失败: " + e.message);
+    }
+  });
+
   // 查找相似
   findBtn.addEventListener("click", async () => {
     if (!audioBlob && !uploadedFile) {
@@ -232,8 +251,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // —— 这里实时从滑块读取值 —— 
       const SILENCE_THRESHOLD = parseFloat(silenceThresholdInput.value) || 0.01;
-      const SILENCE_DURATION  = parseInt(silenceDurationInput.value, 10) || 1500;
-      const MAX_SEGMENT_MS    = parseInt(maxSegmentMsInput.value, 10) || 5000;
+      const SILENCE_DURATION = parseInt(silenceDurationInput.value, 10) || 1500;
+      const MAX_SEGMENT_MS = parseInt(maxSegmentMsInput.value, 10) || 5000;
 
       if (rms > SILENCE_THRESHOLD) {
         // 当前帧 是“有声”
@@ -313,7 +332,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       try {
         console.log("→ POST /loop_audio （发送去静默后的 WAV）");
-        const resp = await fetch("http://localhost:8000/loop_audio", {
+        const resp = await fetch("http://localhost:8000/echo", {
           method: "POST",
           body: fd,
         });
