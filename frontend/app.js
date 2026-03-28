@@ -1,474 +1,679 @@
-// frontend/app.js
-
 document.addEventListener("DOMContentLoaded", () => {
-  let recorder, audioBlob = null, uploadedFile = null;
+  const API_BASE = resolveApiBase();
+
+  let recorder = null;
+  let recordStream = null;
+  let recordAudioContext = null;
+  let sourceAudio = null;
+  let sourceAudioName = "";
+  let sourcePreviewUrl = "";
+  let generatePreviewUrl = "";
+  let searchPreviewUrl = "";
+  let loopPreviewUrl = "";
 
   const desc = document.getElementById("description");
+  const durationInput = document.getElementById("duration");
+  const fileUpload = document.getElementById("file-upload");
+
   const recBtn = document.getElementById("record-btn");
   const stopBtn = document.getElementById("stop-btn");
   const genBtn = document.getElementById("generate-btn");
-  const fileUpload = document.getElementById("file-upload");
-  const player = document.getElementById("audio-player");         // 循环录制结果播放器
-  const inputPlayer = document.getElementById("input-player");    // 普通录音/上传原始波形播放器
-  const generatePlayer = document.getElementById("generate-player"); // 普通生成结果播放器
-  const durationInput = document.getElementById("duration");
+  const findBtn = document.getElementById("find-btn");
   const rebuildBtn = document.getElementById("rebuild-btn");
   const rebuildSliceBtn = document.getElementById("rebuild-slice-btn");
-  const findBtn = document.getElementById("find-btn");
-
-  // —— 循环录音 相关 DOM —— 
   const startLoopBtn = document.getElementById("start-loop-btn");
   const stopLoopBtn = document.getElementById("stop-loop-btn");
 
-  // —— 与滑块（调整参数）相关 —— 
+  const inputPlayer = document.getElementById("input-player");
+  const generatePlayer = document.getElementById("generate-player");
+  const searchPlayer = document.getElementById("search-player");
+  const loopPlayer = document.getElementById("audio-player");
+
+  const appStatus = document.getElementById("app-status");
+  const audioStatus = document.getElementById("audio-status");
+  const generateStatus = document.getElementById("generate-status");
+  const libraryStatus = document.getElementById("library-status");
+  const loopStatus = document.getElementById("loop-status");
+  const sourceCaption = document.getElementById("source-caption");
+
   const silenceThresholdInput = document.getElementById("silence-threshold");
   const silenceDurationInput = document.getElementById("silence-duration");
   const maxSegmentMsInput = document.getElementById("max-segment-ms");
-
-  // 对应滑块右侧的数值展示 <span> 
   const silenceThresholdDisplay = document.getElementById("silence-threshold-display");
   const silenceDurationDisplay = document.getElementById("silence-duration-display");
   const maxSegmentMsDisplay = document.getElementById("max-segment-ms-display");
 
-  // 在页面载入时，给三个 <input type="range"> 绑定 “实时更新右侧 <span>” 的逻辑——
-  silenceThresholdInput.addEventListener("input", () => {
-    // 保持三位小数
-    silenceThresholdDisplay.textContent = parseFloat(silenceThresholdInput.value).toFixed(3);
-  });
-  silenceDurationInput.addEventListener("input", () => {
-    silenceDurationDisplay.textContent = silenceDurationInput.value;
-  });
-  maxSegmentMsInput.addEventListener("input", () => {
-    maxSegmentMsDisplay.textContent = maxSegmentMsInput.value;
-  });
-
-  // —— 到此为止，滑块联动显示部分完成 —— 
-
-  // —— 其它循环录音所需的全局变量 —— 
   let loopStream = null;
   let loopAudioContext = null;
   let loopRecorder = null;
   let analyserNode = null;
   let loopDetectInterval = null;
-
   let wasSpeaking = false;
   let segmentStartTime = null;
   let silentSince = null;
 
-  function updateGenerateButtonState() {
-    genBtn.disabled = !(desc.value.trim() || audioBlob || uploadedFile);
-  }
+  desc.addEventListener("input", refreshActionAvailability);
 
-  // -------- 普通：文字描述 + 上传 + 普通录音 + 生成/检索 按钮逻辑（保持原样） -------- 
-
-  desc.addEventListener("input", updateGenerateButtonState);
-
-  // 处理上传文件
   fileUpload.addEventListener("change", () => {
     const file = fileUpload.files[0] || null;
-    if (file) {
-      uploadedFile = file;
-      // 显示上传回放
-      const url = URL.createObjectURL(file);
-      inputPlayer.src = url;
-    } else {
-      // 用户清空上传：保留录制音频或无音频
-      uploadedFile = null;
-      if (!audioBlob) {
-        // inputCont.classList.remove("visible");
-      }
+
+    if (!file) {
+      clearSourceAudio();
+      refreshActionAvailability();
+      return;
     }
-    updateGenerateButtonState();
+
+    setSourceAudio(file, file.name);
+    setStatus(audioStatus, "success", "音频输入已载入。现在可以去生成，或者去素材库里找相似内容。", true);
+    setStatus(appStatus, "success", "音频输入已准备好，后面的生成区和检索区都可以直接使用。", true);
+    refreshActionAvailability();
   });
 
-  // 开始普通录音
   recBtn.addEventListener("click", async () => {
     recBtn.disabled = true;
     stopBtn.disabled = false;
-    audioBlob = null;
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const source = audioContext.createMediaStreamSource(stream);
-    recorder = new Recorder(source, { numChannels: 1 });
-    recorder.record();
-    console.log("普通录音：开始录制");
+    setStatus(audioStatus, "busy", "正在录音。录完以后点击“停止录音”。");
+    setStatus(appStatus, "busy", "正在准备共享音频输入。", true);
+
+    try {
+      recordStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recordAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const source = recordAudioContext.createMediaStreamSource(recordStream);
+      recorder = new Recorder(source, { numChannels: 1 });
+      recorder.record();
+    } catch (error) {
+      recBtn.disabled = false;
+      stopBtn.disabled = true;
+      setStatus(audioStatus, "error", "麦克风不可用。请检查浏览器权限后重试。", true);
+      setStatus(appStatus, "error", "录音没有成功启动。", true);
+      cleanupRecorder();
+      console.error("record start error:", error);
+    }
   });
 
-  // 停止普通录音并导出 WAV
   stopBtn.addEventListener("click", () => {
+    if (!recorder) {
+      recBtn.disabled = false;
+      stopBtn.disabled = true;
+      return;
+    }
+
+    const activeRecorder = recorder;
     recBtn.disabled = false;
     stopBtn.disabled = true;
-    recorder.stop();
-    recorder.exportWAV((blob) => {
-      audioBlob = blob;
-      // 检查录音是否成功
-      if (audioBlob.size <= 44) {
-        alert("录音失败，请确保麦克风正常工作并重新录音！");
-        audioBlob = null;
+    activeRecorder.stop();
+
+    activeRecorder.exportWAV((blob) => {
+      cleanupRecorder();
+      activeRecorder.clear();
+
+      if (blob.size <= 44) {
+        setStatus(audioStatus, "error", "录到的内容是空的。请靠近麦克风后再试一次。", true);
+        setStatus(appStatus, "error", "没有拿到可用的音频输入。", true);
         return;
       }
-      const url = URL.createObjectURL(audioBlob);
-      inputPlayer.src = url;
-      // inputCont.classList.add("visible");
-      updateGenerateButtonState();
-      recorder.clear();
+
+      setSourceAudio(blob, "录音输入");
+      setStatus(audioStatus, "success", "录音已经保存为当前音频输入。现在可以去生成或检索。", true);
+      setStatus(appStatus, "success", "共享音频输入已经准备好。", true);
+      refreshActionAvailability();
     });
   });
 
-  // “生成音乐” 按钮 —— 现在结果推给 #generate-player
   genBtn.addEventListener("click", async () => {
-    if (!desc.value.trim() && !audioBlob && !uploadedFile) {
-      alert("请输入描述、录制一段音频，或上传一个文件！");
+    const effectivePrompt = getEffectivePrompt();
+
+    if (!sourceAudio) {
+      setStatus(generateStatus, "error", "要先在上面的区域准备一份音频输入，生成区才能工作。", true);
+      return;
+    }
+
+    if (!effectivePrompt) {
+      setStatus(generateStatus, "error", "当前没有可用的文本提示。", true);
       return;
     }
 
     const duration = parseInt(durationInput.value, 10) || 5;
-    const fd = new FormData();
-    fd.append("description", desc.value.trim());
-    fd.append("duration", duration);
-    if (uploadedFile) {
-      fd.append("audio_file", uploadedFile, uploadedFile.name);
-    } else if (audioBlob) {
-      fd.append("audio_file", audioBlob, "input.wav");
-    }
-    try {
-      console.log("→ POST /generate");
-      const resp = await fetch("http://localhost:8000/generate", {
-        method: "POST",
-        body: fd
-      });
-      if (!resp.ok) throw new Error(resp.statusText);
-      const blob = await resp.blob();
+    const formData = new FormData();
+    formData.append("description", effectivePrompt);
+    formData.append("duration", String(duration));
+    formData.append("audio_file", sourceAudio, normalizeSourceFilename(sourceAudioName));
 
-      // **这里把生成的结果直接赋给 #generate-player，保证它就在上半区播放** 
-      const urlGen = URL.createObjectURL(blob);
-      generatePlayer.src = urlGen;
-      generatePlayer.play();
-    } catch (e) {
-      console.error("generate error:", e);
-      alert("生成失败，请重试");
+    setButtonBusy(genBtn, true, "生成中...");
+    setStatus(generateStatus, "busy", "正在生成新音频。CPU 模式下可能会稍微久一点。", true);
+    setStatus(appStatus, "busy", "模型正在生成结果。", true);
+
+    try {
+      const blob = await postForAudio("/generate", formData, 180000);
+      assignAudioPreview(generatePlayer, blob, "generate");
+      await safePlay(generatePlayer);
+      setStatus(generateStatus, "success", "生成完成。新的音频结果已经放到下方播放器里。", true);
+      setStatus(appStatus, "success", "生成区已经返回结果。", true);
+    } catch (error) {
+      setStatus(generateStatus, "error", error.message || "生成失败。", true);
+      setStatus(appStatus, "error", "生成区执行失败。", true);
+      console.error("generate error:", error);
+    } finally {
+      setButtonBusy(genBtn, false);
+      refreshActionAvailability();
     }
   });
 
-  // 重建索引
-  rebuildBtn.addEventListener("click", async () => {
-    try {
-      const resp = await fetch("http://localhost:8000/rebuild_index", { method: "POST" });
-      const info = await resp.json();
-      alert(`Index built: ${info.built} files`);
-    } catch {
-      alert("重建索引失败");
-    }
-  });
-
-  // 重建切片索引
-  rebuildSliceBtn.addEventListener("click", async () => {
-    try {
-      const resp = await fetch("http://localhost:8000/rebuild_slice_index", {
-        method: "POST",
-      });
-      if (!resp.ok) {
-        const err = await resp.json();
-        throw new Error(err.error || "unknown");
-      }
-      const data = await resp.json();
-      alert(data.detail || "Slice index rebuilt successfully.");
-    } catch (e) {
-      console.error("rebuild slice index error:", e);
-      alert("重建切片索引失败: " + e.message);
-    }
-  });
-
-  // 查找相似
   findBtn.addEventListener("click", async () => {
-    if (!audioBlob && !uploadedFile) {
-      alert("请先录音或上传音频！");
+    if (!sourceAudio) {
+      setStatus(libraryStatus, "error", "要先在上面的区域准备一份音频输入，才能做相似检索。", true);
       return;
     }
 
-    const fd = new FormData();
-    // 和后端参数名保持一致
-    fd.append("audio_file", uploadedFile || audioBlob, "query.wav");
+    generatePlayer.pause();
+
+    const formData = new FormData();
+    formData.append("audio_file", sourceAudio, normalizeSourceFilename(sourceAudioName));
+    formData.append("top_k", "5");
+
+    setButtonBusy(findBtn, true, "检索中...");
+    setStatus(libraryStatus, "busy", "正在素材库中检索最接近的音频。", true);
+    setStatus(appStatus, "busy", "正在执行相似素材检索。", true);
 
     try {
-      console.log("→ POST /find_similar");
-      const resp = await fetch("http://localhost:8000/find_similar", {
-        method: "POST",
-        body: fd
-      });
-      if (!resp.ok) throw new Error(resp.statusText);
-      // 直接拿回音频文件（stream）—— 这里也视为“生成”后的播放
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
-      generatePlayer.src = url;
-      generatePlayer.play();
-    } catch (e) {
-      console.error("find_similar error:", e);
-      alert("检索失败，请重试");
+      const blob = await postForAudio("/find_similar", formData, 90000);
+      assignAudioPreview(searchPlayer, blob, "search");
+      await safePlay(searchPlayer);
+      setStatus(libraryStatus, "success", "检索完成。最接近的素材已经放到下方播放器里。", true);
+      setStatus(appStatus, "success", "素材库检索已经返回结果。", true);
+    } catch (error) {
+      setStatus(libraryStatus, "error", error.message || "相似检索失败。", true);
+      setStatus(appStatus, "error", "素材库检索失败。", true);
+      console.error("find_similar error:", error);
+    } finally {
+      setButtonBusy(findBtn, false);
+      refreshActionAvailability();
     }
   });
 
-  // -------- 以上为“普通录音 + 生成/检索”逻辑，均未改动 id 以外的核心代码 -------- 
+  rebuildBtn.addEventListener("click", async () => {
+    setButtonBusy(rebuildBtn, true, "重建中...");
+    setStatus(libraryStatus, "busy", "正在重建素材库索引。", true);
+    setStatus(appStatus, "busy", "素材库索引维护正在执行。", true);
 
-  // =========================================
-  // ======= 下面开始“循环录音”逻辑改动 =======
-  // =========================================
+    try {
+      const response = await postForJson("/rebuild_index", null, 120000);
+      setStatus(libraryStatus, "success", `素材库索引重建完成，共处理 ${response.built} 个文件。`, true);
+      setStatus(appStatus, "success", "素材库索引已经刷新。", true);
+    } catch (error) {
+      setStatus(libraryStatus, "error", error.message || "素材库索引重建失败。", true);
+      setStatus(appStatus, "error", "素材库索引维护失败。", true);
+      console.error("rebuild index error:", error);
+    } finally {
+      setButtonBusy(rebuildBtn, false);
+      refreshActionAvailability();
+    }
+  });
+
+  rebuildSliceBtn.addEventListener("click", async () => {
+    setButtonBusy(rebuildSliceBtn, true, "重建中...");
+    setStatus(loopStatus, "busy", "正在重建循环录制试验区使用的切片索引。", true);
+    setStatus(appStatus, "busy", "试验区索引维护正在执行。", true);
+
+    try {
+      const response = await postForJson("/rebuild_slice_index", null, 120000);
+      setStatus(loopStatus, "success", response.detail || "切片索引重建成功。", true);
+      setStatus(appStatus, "success", "试验区切片索引已经刷新。", true);
+    } catch (error) {
+      setStatus(loopStatus, "error", error.message || "切片索引重建失败。", true);
+      setStatus(appStatus, "error", "试验区切片索引维护失败。", true);
+      console.error("rebuild slice index error:", error);
+    } finally {
+      setButtonBusy(rebuildSliceBtn, false);
+    }
+  });
+
+  silenceThresholdInput.addEventListener("input", () => {
+    silenceThresholdDisplay.textContent = parseFloat(silenceThresholdInput.value).toFixed(3);
+  });
+
+  silenceDurationInput.addEventListener("input", () => {
+    silenceDurationDisplay.textContent = silenceDurationInput.value;
+  });
+
+  maxSegmentMsInput.addEventListener("input", () => {
+    maxSegmentMsDisplay.textContent = maxSegmentMsInput.value;
+  });
 
   startLoopBtn.addEventListener("click", async () => {
-    console.log(">>> 开始循环录音");
+    startLoopBtn.disabled = true;
+    stopLoopBtn.disabled = false;
+    setStatus(loopStatus, "busy", "循环录制已开始，正在监听新的片段。", true);
+    setStatus(appStatus, "busy", "试验区正在持续录音。", true);
 
-    // 1) 直接获取麦克风 MediaStream 并构造 AudioContext
-    loopStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    loopAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const loopSource = loopAudioContext.createMediaStreamSource(loopStream);
+    try {
+      loopStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      loopAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const loopSource = loopAudioContext.createMediaStreamSource(loopStream);
 
-    // 2) 创建 Recorder.js，立即 record()（从此刻起不断向内部缓存写 PCM）
-    loopRecorder = new Recorder(loopSource, { numChannels: 1 });
-    loopRecorder.record();
+      loopRecorder = new Recorder(loopSource, { numChannels: 1 });
+      loopRecorder.record();
 
-    // 3) 创建 AnalyserNode，fftSize=2048
-    analyserNode = loopAudioContext.createAnalyser();
-    analyserNode.fftSize = 2048;
-    loopSource.connect(analyserNode);
+      analyserNode = loopAudioContext.createAnalyser();
+      analyserNode.fftSize = 2048;
+      loopSource.connect(analyserNode);
 
-    // 4) 初始化状态
-    wasSpeaking = false;
-    segmentStartTime = null;
-    silentSince = null;
+      wasSpeaking = false;
+      segmentStartTime = null;
+      silentSince = null;
 
-    // 5) 定时检测音量（每 200ms）
-    loopDetectInterval = setInterval(() => {
-      const dataArray = new Float32Array(analyserNode.fftSize);
-      analyserNode.getFloatTimeDomainData(dataArray);
+      loopDetectInterval = window.setInterval(() => {
+        const dataArray = new Float32Array(analyserNode.fftSize);
+        analyserNode.getFloatTimeDomainData(dataArray);
 
-      // 计算 RMS
-      let sumSquares = 0;
-      for (let i = 0; i < dataArray.length; i++) {
-        sumSquares += dataArray[i] * dataArray[i];
-      }
-      const rms = Math.sqrt(sumSquares / dataArray.length);
-      const now = Date.now();
+        let sumSquares = 0;
+        for (let index = 0; index < dataArray.length; index += 1) {
+          sumSquares += dataArray[index] * dataArray[index];
+        }
 
-      // —— 这里实时从滑块读取值 —— 
-      const SILENCE_THRESHOLD = parseFloat(silenceThresholdInput.value) || 0.01;
-      const SILENCE_DURATION = parseInt(silenceDurationInput.value, 10) || 1500;
-      const MAX_SEGMENT_MS = parseInt(maxSegmentMsInput.value, 10) || 5000;
+        const rms = Math.sqrt(sumSquares / dataArray.length);
+        const now = Date.now();
+        const silenceThreshold = parseFloat(silenceThresholdInput.value) || 0.01;
+        const silenceDuration = parseInt(silenceDurationInput.value, 10) || 1500;
+        const maxSegmentMs = parseInt(maxSegmentMsInput.value, 10) || 5000;
 
-      if (rms > SILENCE_THRESHOLD) {
-        // 当前帧 是“有声”
-        if (!wasSpeaking) {
-          // 刚刚从静默切到有声
-          wasSpeaking = true;
-          segmentStartTime = now;
-          silentSince = null;
-          console.log("🚀 有声开始，开始新段落");
-        } else {
-          // 已经在“有声”里，判断是不是超过 MAX_SEGMENT_MS
-          const spokenDuration = now - segmentStartTime;
-          if (spokenDuration >= MAX_SEGMENT_MS) {
-            // 强制切段
-            console.log(`⏱ 达到 ${MAX_SEGMENT_MS}ms，强制切段并发送`);
+        if (rms > silenceThreshold) {
+          if (!wasSpeaking) {
+            wasSpeaking = true;
+            segmentStartTime = now;
+            silentSince = null;
+            setStatus(loopStatus, "busy", "检测到声音，正在截取片段。", true);
+          } else if (now - segmentStartTime >= maxSegmentMs) {
             wasSpeaking = false;
             silentSince = null;
             exportAndSendSegment();
           }
+          return;
         }
-      } else {
-        // 当前帧 是“静默”
-        if (wasSpeaking) {
-          if (!silentSince) {
-            // 刚刚从“有声”切到“静默”，记录静默开始时间
-            silentSince = now;
-          } else {
-            const elapsedSilence = now - silentSince;
-            if (elapsedSilence >= SILENCE_DURATION) {
-              // 静默连续超过阈值 → 段落结束
-              console.log(`🔚 段落结束(静默≥${SILENCE_DURATION}ms)，导出并发送`);
-              wasSpeaking = false;
-              silentSince = null;
-              exportAndSendSegment();
-            }
-          }
-        }
-      }
-    }, 200);
 
-    // 更新按钮状态
-    startLoopBtn.disabled = true;
-    stopLoopBtn.disabled = false;
+        if (!wasSpeaking) {
+          return;
+        }
+
+        if (!silentSince) {
+          silentSince = now;
+          return;
+        }
+
+        if (now - silentSince >= silenceDuration) {
+          wasSpeaking = false;
+          silentSince = null;
+          exportAndSendSegment();
+        }
+      }, 200);
+    } catch (error) {
+      stopLoopRecording();
+      setStatus(loopStatus, "error", "循环录制启动失败。请检查麦克风权限。", true);
+      setStatus(appStatus, "error", "试验区没有成功启动。", true);
+      console.error("loop start error:", error);
+    }
   });
 
-  /**
-   * 每当“一段录音”要发给后端时，就调用这个函数：
-   * 1) loopRecorder.stop() —— 停止 Recorder.js 录制
-   * 2) loopRecorder.exportWAV(callback) —— 把本次录的【含静默】导出成 WAV
-   * 3) 在 callback 里：
-   *    a) 去除段首/段尾静默 → 得到 trimmedBlob
-   *    b) loopRecorder.clear() + loopRecorder.record() —— 立即清空缓存并重启下一次录制
-   *    c) 构造 FormData 送 trimmedBlob 给后端 → 拿到 returnedBlob → 直接给 “#audio-player” 播放并播放
-   */
-  async function exportAndSendSegment() {
-    if (!loopRecorder) return;
-    // 1) 先停止当前 Recorder.js
-    loopRecorder.stop();
+  stopLoopBtn.addEventListener("click", () => {
+    stopLoopRecording();
+    setStatus(loopStatus, "idle", "循环录制当前处于空闲状态。", true);
+    setStatus(appStatus, "idle", "试验区已经停止。", true);
+  });
 
-    loopRecorder.exportWAV(async (blob) => {
-      // —— 2) 去静默：decode → 找首尾非静默 → 重新 encode —— 
-      let trimmedBlob;
+  refreshActionAvailability();
+
+  function refreshActionAvailability() {
+    const hasPrompt = Boolean(getEffectivePrompt());
+    const hasSourceAudio = Boolean(sourceAudio);
+
+    genBtn.disabled = !hasPrompt || !hasSourceAudio;
+    findBtn.disabled = !hasSourceAudio;
+
+    if (!hasSourceAudio) {
+      if (!isPinned(audioStatus)) {
+        setStatus(audioStatus, "idle", "还没有音频输入。请先录音或上传文件。", true);
+      }
+      if (!isPinned(libraryStatus)) {
+        setStatus(libraryStatus, "idle", "准备好音频输入后，就可以查找素材库中的相似音频。", true);
+      }
+    } else {
+      if (!isPinned(audioStatus)) {
+        setStatus(audioStatus, "success", "当前音频输入已经准备好。", true);
+      }
+      if (!isPinned(libraryStatus)) {
+        setStatus(libraryStatus, "idle", "可以开始查找相似素材，也可以按需重建素材库索引。", true);
+      }
+    }
+
+    if (!hasSourceAudio && !isPinned(generateStatus)) {
+      setStatus(generateStatus, "idle", "先准备音频输入；文本留空时会自动使用默认提示词。", true);
+    } else if (hasSourceAudio && !desc.value.trim() && !isPinned(generateStatus)) {
+      setStatus(generateStatus, "idle", "将使用默认示例提示词生成新音频。", true);
+    } else if (hasPrompt && hasSourceAudio && !isPinned(generateStatus)) {
+      setStatus(generateStatus, "idle", "文本提示和音频输入都准备好了，可以开始生成。", true);
+    }
+  }
+
+  function getEffectivePrompt() {
+    const manualPrompt = desc.value.trim();
+    if (manualPrompt) {
+      return manualPrompt;
+    }
+
+    return desc.placeholder.trim();
+  }
+
+  function setSourceAudio(audioLike, label) {
+    sourceAudio = audioLike;
+    sourceAudioName = label;
+
+    if (sourcePreviewUrl) {
+      URL.revokeObjectURL(sourcePreviewUrl);
+    }
+
+    sourcePreviewUrl = URL.createObjectURL(audioLike);
+    inputPlayer.src = sourcePreviewUrl;
+    sourceCaption.textContent = label;
+  }
+
+  function clearSourceAudio() {
+    sourceAudio = null;
+    sourceAudioName = "";
+
+    if (sourcePreviewUrl) {
+      URL.revokeObjectURL(sourcePreviewUrl);
+      sourcePreviewUrl = "";
+    }
+
+    sourceCaption.textContent = "尚未准备";
+    inputPlayer.removeAttribute("src");
+    inputPlayer.load();
+  }
+
+  function assignAudioPreview(player, blob, target) {
+    const nextUrl = URL.createObjectURL(blob);
+
+    if (target === "generate" && generatePreviewUrl) {
+      URL.revokeObjectURL(generatePreviewUrl);
+    }
+    if (target === "search" && searchPreviewUrl) {
+      URL.revokeObjectURL(searchPreviewUrl);
+    }
+    if (target === "loop" && loopPreviewUrl) {
+      URL.revokeObjectURL(loopPreviewUrl);
+    }
+
+    if (target === "generate") {
+      generatePreviewUrl = nextUrl;
+    }
+    if (target === "search") {
+      searchPreviewUrl = nextUrl;
+    }
+    if (target === "loop") {
+      loopPreviewUrl = nextUrl;
+    }
+
+    player.src = nextUrl;
+  }
+
+  async function exportAndSendSegment() {
+    if (!loopRecorder) {
+      return;
+    }
+
+    const activeLoopRecorder = loopRecorder;
+    activeLoopRecorder.stop();
+
+    activeLoopRecorder.exportWAV(async (blob) => {
+      let trimmedBlob = blob;
+
       try {
         trimmedBlob = await trimSilenceFromWav(blob);
-      } catch (e) {
-        console.warn("去静默失败，使用原始 blob：", e);
-        trimmedBlob = blob;
+      } catch (error) {
+        console.warn("trim silence error:", error);
       }
 
-      // —— 3) 清空 + 重新开始录制 
-      loopRecorder.clear();
-      loopRecorder.record();
+      activeLoopRecorder.clear();
+      if (loopRecorder === activeLoopRecorder) {
+        activeLoopRecorder.record();
+      }
 
-      // —— 4) 构造 FormData，发送 trimmedBlob 给后端 —— 
-      const fd = new FormData();
-      fd.append("audio_file", trimmedBlob, "segment.wav");
+      const formData = new FormData();
+      formData.append("audio_file", trimmedBlob, "segment.wav");
+      setStatus(loopStatus, "busy", "正在处理刚刚截取到的片段。", true);
 
       try {
-        console.log("→ POST /loop_audio （发送去静默后的 WAV）");
-        const resp = await fetch("http://localhost:8000/echo", {
-          method: "POST",
-          body: fd,
-        });
-        if (!resp.ok) throw new Error(resp.statusText);
-
-        // —— 4a) 拿到后端返回的音频，给 “#audio-player” 播放并播放 —— 
-        const returnedBlob = await resp.blob();
-        const urlResult = URL.createObjectURL(returnedBlob);
-        player.src = urlResult;
-        player.play();
-      } catch (err) {
-        console.error("loop segment send error:", err);
+        const returnedBlob = await postForAudio("/loop_audio", formData, 90000);
+        assignAudioPreview(loopPlayer, returnedBlob, "loop");
+        await safePlay(loopPlayer);
+        setStatus(loopStatus, "success", "最新片段已经返回并可试听。", true);
+      } catch (error) {
+        setStatus(loopStatus, "error", error.message || "循环片段处理失败。", true);
+        console.error("loop segment error:", error);
       }
     });
   }
 
-  stopLoopBtn.addEventListener("click", () => {
-    console.log(">>> 停止循环录音");
-    clearInterval(loopDetectInterval);
-    loopDetectInterval = null;
-
-    if (loopRecorder) {
-      loopRecorder.stop();
-      loopRecorder.clear();
-      loopRecorder = null;
-    }
-    if (loopStream) {
-      loopStream.getTracks().forEach((t) => t.stop());
-      loopStream = null;
-    }
-    if (loopAudioContext) {
-      loopAudioContext.close();
-      loopAudioContext = null;
-    }
-    wasSpeaking = false;
-    segmentStartTime = null;
-    silentSince = null;
-
-    startLoopBtn.disabled = false;
-    stopLoopBtn.disabled = true;
-  });
-
-  updateGenerateButtonState();
-
-  // -------------------- 辅助函数：去除 WAV 前后静默 --------------------
-
-  /**
-   * 接收一个 WAV Blob，使用 AudioContext.decodeAudioData 解码，
-   * 找到首尾“超过阈值”的样本索引，然后重新打包成一个新的 WAV Blob 并返回。
-   */
   async function trimSilenceFromWav(wavBlob) {
-    // 1) 用 AudioContext 解码
     const arrayBuffer = await wavBlob.arrayBuffer();
-    const ac = new (window.AudioContext || window.webkitAudioContext)();
-    if (ac.state === "suspended") {
-      await ac.resume();
-    }
-    const audioBuffer = await ac.decodeAudioData(arrayBuffer);
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
-    // 2) 拿到单通道数据（只支持 mono）
+    if (audioContext.state === "suspended") {
+      await audioContext.resume();
+    }
+
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
     const channelData = audioBuffer.getChannelData(0);
     const sampleRate = audioBuffer.sampleRate;
+    const threshold = parseFloat(silenceThresholdInput.value) || 0.01;
 
-    // 3) 找首个“有声音”样本索引
     let startSample = 0;
-    const threshold = parseFloat(silenceThresholdInput.value);
-    for (let i = 0; i < channelData.length; i++) {
-      if (Math.abs(channelData[i]) > threshold) {
-        startSample = i;
-        break;
-      }
-    }
-    // 4) 找最后一个“有声音”样本索引
-    let endSample = channelData.length;
-    for (let i = channelData.length - 1; i >= 0; i--) {
-      if (Math.abs(channelData[i]) > threshold) {
-        endSample = i + 1;
+    for (let index = 0; index < channelData.length; index += 1) {
+      if (Math.abs(channelData[index]) > threshold) {
+        startSample = index;
         break;
       }
     }
 
-    // 全是静默？直接返回原 blob
+    let endSample = channelData.length;
+    for (let index = channelData.length - 1; index >= 0; index -= 1) {
+      if (Math.abs(channelData[index]) > threshold) {
+        endSample = index + 1;
+        break;
+      }
+    }
+
     if (startSample >= endSample) {
-      ac.close?.();
+      audioContext.close?.();
       return wavBlob;
     }
 
-    // 5) 提取“有声”区间的数据到新的 Float32Array
     const trimmedData = channelData.slice(startSample, endSample);
-
-    // 6) 重新打包成 WAV Blob
-    const trimmedWavBlob = encodeWAV(trimmedData, sampleRate);
-    ac.close?.();
-    return trimmedWavBlob;
+    const trimmedBlob = encodeWav(trimmedData, sampleRate);
+    audioContext.close?.();
+    return trimmedBlob;
   }
 
-  /**
-   * 给定 Float32Array ([-1,1]) 和采样率，生成一个 WAV Blob（16-bit PCM）。
-   */
-  function encodeWAV(samples, sampleRate) {
+  function encodeWav(samples, sampleRate) {
     const buffer = new ArrayBuffer(44 + samples.length * 2);
     const view = new DataView(buffer);
 
-    /* RIFF identifier */
     writeString(view, 0, "RIFF");
-    /* file length */
     view.setUint32(4, 36 + samples.length * 2, true);
-    /* WAVE */
     writeString(view, 8, "WAVE");
-    /* fmt  chunk */
     writeString(view, 12, "fmt ");
-    view.setUint32(16, 16, true);             // Subchunk1Size (16 for PCM)
-    view.setUint16(20, 1, true);              // AudioFormat (1 = PCM)
-    view.setUint16(22, 1, true);              // NumChannels = 1 (mono)
-    view.setUint32(24, sampleRate, true);     // SampleRate
-    view.setUint32(28, sampleRate * 2, true); // ByteRate = SampleRate * NumChannels * BitsPerSample/8
-    view.setUint16(32, 2, true);              // BlockAlign = NumChannels * BitsPerSample/8
-    view.setUint16(34, 16, true);             // BitsPerSample = 16
-    /* data chunk */
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
     writeString(view, 36, "data");
     view.setUint32(40, samples.length * 2, true);
 
-    // PCM 16-bit
     let offset = 44;
-    for (let i = 0; i < samples.length; i++) {
-      let s = Math.max(-1, Math.min(1, samples[i]));
-      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    for (let index = 0; index < samples.length; index += 1) {
+      const sample = Math.max(-1, Math.min(1, samples[index]));
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
       offset += 2;
     }
 
     return new Blob([view], { type: "audio/wav" });
   }
 
-  function writeString(view, offset, str) {
-    for (let i = 0; i < str.length; i++) {
-      view.setUint8(offset + i, str.charCodeAt(i));
+  function writeString(view, offset, value) {
+    for (let index = 0; index < value.length; index += 1) {
+      view.setUint8(offset + index, value.charCodeAt(index));
     }
+  }
+
+  function cleanupRecorder() {
+    if (recordStream) {
+      recordStream.getTracks().forEach((track) => track.stop());
+      recordStream = null;
+    }
+
+    if (recordAudioContext) {
+      recordAudioContext.close();
+      recordAudioContext = null;
+    }
+
+    recorder = null;
+  }
+
+  function stopLoopRecording() {
+    if (loopDetectInterval) {
+      clearInterval(loopDetectInterval);
+      loopDetectInterval = null;
+    }
+
+    if (loopRecorder) {
+      loopRecorder.stop();
+      loopRecorder.clear();
+      loopRecorder = null;
+    }
+
+    if (loopStream) {
+      loopStream.getTracks().forEach((track) => track.stop());
+      loopStream = null;
+    }
+
+    if (loopAudioContext) {
+      loopAudioContext.close();
+      loopAudioContext = null;
+    }
+
+    analyserNode = null;
+    wasSpeaking = false;
+    segmentStartTime = null;
+    silentSince = null;
+    startLoopBtn.disabled = false;
+    stopLoopBtn.disabled = true;
+  }
+
+  function setButtonBusy(button, busy, busyLabel) {
+    if (!button.dataset.idleLabel) {
+      button.dataset.idleLabel = button.textContent;
+    }
+
+    button.disabled = busy;
+    button.textContent = busy ? busyLabel : button.dataset.idleLabel;
+  }
+
+  function setStatus(element, kind, message, pin = false) {
+    if (!element) {
+      return;
+    }
+
+    element.className = `status-banner status-${kind}`;
+    element.textContent = message;
+    element.dataset.pinned = pin ? "true" : "false";
+  }
+
+  function isPinned(element) {
+    return element?.dataset.pinned === "true";
+  }
+
+  async function postForAudio(path, body, timeoutMs) {
+    const response = await fetchWithTimeout(`${API_BASE}${path}`, {
+      method: "POST",
+      body,
+    }, timeoutMs);
+
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response, "请求失败。"));
+    }
+
+    return response.blob();
+  }
+
+  async function postForJson(path, body, timeoutMs) {
+    const response = await fetchWithTimeout(`${API_BASE}${path}`, {
+      method: "POST",
+      body,
+    }, timeoutMs);
+
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response, "请求失败。"));
+    }
+
+    return response.json();
+  }
+
+  async function fetchWithTimeout(url, options, timeoutMs) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      return await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (error.name === "AbortError") {
+        throw new Error("请求超时了。后端可能还在加载模型，或者仍在处理音频。");
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function readErrorMessage(response, fallbackMessage) {
+    const contentType = response.headers.get("content-type") || "";
+
+    if (contentType.includes("application/json")) {
+      const payload = await response.json().catch(() => null);
+      return payload?.detail || payload?.error || fallbackMessage;
+    }
+
+    const text = await response.text().catch(() => "");
+    return text || fallbackMessage;
+  }
+
+  async function safePlay(player) {
+    try {
+      await player.play();
+    } catch (error) {
+      console.warn("audio autoplay blocked:", error);
+    }
+  }
+
+  function normalizeSourceFilename(label) {
+    if (!label) {
+      return "input.wav";
+    }
+
+    const lower = label.toLowerCase();
+    return lower.endsWith(".wav") || lower.endsWith(".mp3") ? label : `${label}.wav`;
+  }
+
+  function resolveApiBase() {
+    if (window.location.protocol === "http:" || window.location.protocol === "https:") {
+      return `${window.location.protocol}//${window.location.hostname}:8000`;
+    }
+
+    return "http://localhost:8000";
   }
 });

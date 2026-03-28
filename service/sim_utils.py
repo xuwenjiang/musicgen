@@ -9,6 +9,11 @@ from transformers import ClapProcessor, ClapModel
 from pathlib import Path
 import torch
 
+from logging_utils import get_logger
+
+
+logger = get_logger("sim")
+
 # ---------------------------------------------------------------------
 # 1. 初始化 CLAP Processor & Model（首次会从 HF 下载，之后可离线启动）
 # ---------------------------------------------------------------------
@@ -66,6 +71,7 @@ def build_index(preload_dir: str, index_path: str = "audio_index.faiss") -> list
     返回：已索引的文件名列表
     """
     files = sorted(Path(preload_dir).glob("*.wav"))
+    logger.info("[STEP] build_index.start preload_dir=%s files=%s", preload_dir, len(files))
     embeddings = []
 
     for p in files:
@@ -77,6 +83,12 @@ def build_index(preload_dir: str, index_path: str = "audio_index.faiss") -> list
     index = faiss.IndexFlatIP(xb.shape[1])      # 用内积度量相似度
     index.add(xb)
     faiss.write_index(index, index_path)
+    logger.info(
+        "[STEP] build_index.end index_path=%s items=%s embedding_dim=%s",
+        index_path,
+        xb.shape[0],
+        xb.shape[1],
+    )
 
     return [p.name for p in files]
 
@@ -95,6 +107,13 @@ def build_slice_index(
     """
     preload_path = Path(preload_dir)
     wav_files = sorted(preload_path.glob("*.wav"))
+    logger.info(
+        "[STEP] build_slice_index.start preload_dir=%s files=%s window_size=%s hop_size=%s",
+        preload_dir,
+        len(wav_files),
+        window_size,
+        hop_size,
+    )
     if not wav_files:
         raise ValueError(f"目录 {preload_dir} 下没有找到任何 .wav 文件。")
 
@@ -139,11 +158,11 @@ def build_slice_index(
     index = faiss.IndexFlatIP(D)
     index.add(xb)
     faiss.write_index(index, index_path)
-    print(f"切片索引已保存到 {index_path}, 共索引 {xb.shape[0]} 段切片。")
+    logger.info("[STEP] build_slice_index.index_saved index_path=%s slices=%s dim=%s", index_path, xb.shape[0], D)
 
     with open(map_path, "w", encoding="utf-8") as f:
         json.dump(slice_map, f, ensure_ascii=False, indent=2)
-    print(f"slice_map 已保存到 {map_path}，共 {len(slice_map)} 条记录。")
+    logger.info("[STEP] build_slice_index.map_saved map_path=%s records=%s", map_path, len(slice_map))
 
 def find_similar(
     query_path: str,
@@ -162,6 +181,7 @@ def find_similar(
     scores:  对应的内积分数列表
     """
     wav, sr = sf.read(query_path)
+    logger.info("[STEP] find_similar.start query_path=%s top_k=%s index_path=%s", query_path, top_k, index_path)
     qemb = _embed_wave(wav, sr)[None]  # (1, D)
 
     index = faiss.read_index(index_path)
@@ -170,6 +190,7 @@ def find_similar(
     files = sorted(Path(preload_dir).glob("*.wav"))
     matches = [files[i].name for i in I[0]]
     scores = D[0].tolist()
+    logger.info("[STEP] find_similar.end matches=%s", len(matches))
 
     return matches, scores
 
@@ -222,7 +243,7 @@ def query_slices_from_index(
         clip_infos.append((start_time_sec, window_size))
 
     if not all_query_embs:
-        print("query wav 太短，切不出 1 秒片段")
+        logger.warning("[ERROR] query_slices.too_short window_size=%s hop_size=%s", window_size, hop_size)
         return []
 
     xb = np.stack(all_query_embs, axis=0).astype("float32")  # (N, D)

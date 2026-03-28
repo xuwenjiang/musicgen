@@ -1,176 +1,368 @@
-/* ---------- 全局字体与背景 ---------- */
+:root {
+  --bg: #f3efe7;
+  --bg-accent: #dce6d8;
+  --surface: rgba(255, 250, 242, 0.88);
+  --surface-strong: #fffdf8;
+  --border: rgba(42, 52, 43, 0.12);
+  --text: #1f2a22;
+  --muted: #5a665d;
+  --primary: #1f6b52;
+  --primary-strong: #0f4f3a;
+  --secondary: #d98d3f;
+  --danger: #ae4f45;
+  --idle-bg: #edf1eb;
+  --idle-text: #425348;
+  --success-bg: #deefe5;
+  --success-text: #1f6148;
+  --error-bg: #f6dfdb;
+  --error-text: #8f3c34;
+  --busy-bg: #fff0d9;
+  --busy-text: #815626;
+  --shadow: 0 24px 60px rgba(31, 42, 34, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
 body {
-  font-family: Arial, sans-serif;
-  text-align: center;
   margin: 0;
-  padding: 0;
-  background-color: #f4f4f9;
+  color: var(--text);
+  font-family: "Segoe UI", "Trebuchet MS", sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(217, 141, 63, 0.18), transparent 28%),
+    radial-gradient(circle at top right, rgba(31, 107, 82, 0.12), transparent 22%),
+    linear-gradient(180deg, var(--bg) 0%, #f8f5ef 52%, #ece7de 100%);
 }
 
-h1 {
-  margin-top: 20px;
-  color: #333;
+audio {
+  width: 100%;
+  margin-top: 12px;
 }
 
-/* ---------- 最外层 #app ---------- */
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+.page-shell {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 32px 20px 48px;
+}
+
+.hero {
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  background: linear-gradient(140deg, rgba(255, 248, 238, 0.95), rgba(241, 246, 238, 0.92));
+  box-shadow: var(--shadow);
+}
+
+.eyebrow,
+.card-kicker {
+  margin: 0 0 10px;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+
+.hero h1,
+.card-head h2,
+.result-head h3 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+}
+
+.hero h1 {
+  font-size: clamp(2.3rem, 5vw, 4.4rem);
+  line-height: 0.95;
+  max-width: 760px;
+}
+
+.hero-copy {
+  max-width: 720px;
+  margin: 16px 0 0;
+  font-size: 1.02rem;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
 #app {
-  margin: 20px auto;
-  max-width: 700px;
-  padding: 20px;
-  background: #fff;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  margin-top: 24px;
+  display: grid;
+  gap: 24px;
 }
 
-/* ---------- 通用“区块”样式 ---------- */
-.section {
-  margin-bottom: 30px;
-  padding: 15px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  background: #fafafa;
+.workflow-stack {
+  display: grid;
+  gap: 24px;
 }
 
-/* ---------- 按钮组 ---------- */
+.task-grid,
+.result-grid {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.task-stack {
+  grid-template-columns: 1fr;
+}
+
+.input-workflow {
+  background: linear-gradient(140deg, rgba(255, 251, 245, 0.97), rgba(240, 247, 241, 0.92));
+}
+
+.task-card,
+.result-card,
+.maintenance-card {
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: var(--surface);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow);
+}
+
+.task-card,
+.maintenance-card {
+  padding: 24px;
+}
+
+.result-card {
+  padding: 24px;
+}
+
+.spotlight-card {
+  background: linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(244, 247, 242, 0.92));
+}
+
+.library-card {
+  background: linear-gradient(180deg, rgba(248, 249, 242, 0.96), rgba(255, 250, 245, 0.92));
+  border-top: 4px solid rgba(31, 107, 82, 0.2);
+}
+
+.loop-card {
+  background: linear-gradient(180deg, rgba(247, 249, 244, 0.96), rgba(255, 248, 241, 0.92));
+}
+
+.task-stack .result-card + .result-card {
+  margin-top: 4px;
+}
+
+.card-head p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.field-label {
+  display: block;
+  margin-top: 20px;
+  margin-bottom: 10px;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+textarea,
+input[type="number"],
+input[type="file"] {
+  width: 100%;
+  border: 1px solid rgba(31, 42, 34, 0.14);
+  border-radius: 16px;
+  background: var(--surface-strong);
+}
+
+textarea {
+  min-height: 144px;
+  padding: 16px 18px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+input[type="number"],
+input[type="file"] {
+  min-height: 52px;
+  padding: 12px 14px;
+}
+
+.field-row {
+  display: grid;
+  gap: 16px;
+}
+
+.single-field-row {
+  grid-template-columns: minmax(0, 420px);
+}
+
+.compact-fields {
+  grid-template-columns: minmax(160px, 220px);
+  margin-top: 18px;
+}
+
+.field-stack {
+  display: grid;
+  gap: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.field-stack span {
+  color: var(--muted);
+}
+
 .button-group {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  justify-content: center;
-  margin-bottom: 15px;
+  gap: 12px;
+  margin-top: 20px;
 }
 
-/* 按钮统一样式 */
 button {
-  padding: 8px 16px;
-  font-size: 16px;
+  min-height: 48px;
+  padding: 12px 18px;
   border: none;
-  border-radius: 4px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
   cursor: pointer;
-  background-color: #4a90e2;
-  color: white;
-  transition: background-color 0.2s;
-}
-
-button:disabled {
-  background-color: #ccc;
-  cursor: not-allowed;
+  transition: transform 0.18s ease, background-color 0.18s ease, opacity 0.18s ease;
 }
 
 button:hover:not(:disabled) {
-  background-color: #357ab7;
+  transform: translateY(-1px);
+  background: var(--primary-strong);
 }
 
-/* ---------- 文本输入区 ---------- */
-textarea {
-  width: 100%;
-  height: 80px;
-  margin-bottom: 15px;
-  padding: 10px;
-  font-size: 16px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
-/* ---------- 上传 + 生成时长 组合 ---------- */
-.file-duration-group {
+.secondary-actions button,
+.maintenance-actions button,
+.loop-actions button {
+  background: #395a4d;
+}
+
+.maintenance-actions button:last-child {
+  background: #8c6a35;
+}
+
+.status-banner {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.status-idle {
+  background: var(--idle-bg);
+  color: var(--idle-text);
+}
+
+.status-success {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+.status-error {
+  background: var(--error-bg);
+  color: var(--error-text);
+}
+
+.status-busy {
+  background: var(--busy-bg);
+  color: var(--busy-text);
+}
+
+.result-head {
   display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: baseline;
   flex-wrap: wrap;
-  gap: 20px;
-  justify-content: center;
-  margin-bottom: 20px;
 }
 
-.file-duration-group label {
-  display: flex;
-  flex-direction: column;
-  font-size: 14px;
-  color: #333;
+.result-caption {
+  color: var(--muted);
+  font-size: 0.92rem;
 }
 
-.file-duration-group input[type="file"],
-.file-duration-group input[type="number"] {
-  margin-top: 6px;
+.result-source {
+  margin-top: 18px;
+  padding: 18px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.62);
 }
 
-/* ---------- 单次录音播放区 ---------- */
-#input-player-container {
-  margin-top: 15px;
-}
-#input-player-container.visible {
-  display: block;
-}
-#input-player-container p {
-  margin: 5px 0;
-}
-#input-player {
-  margin-top: 8px;
-  width: 100%;
+.input-workflow .result-source {
+  max-width: 680px;
 }
 
-#generate-player-container {
-  margin-top: 15px;
-}
-#generate-player-container.visible {
-  display: block;
-}
-#generate-player-container p {
-  margin: 5px 0;
-}
-#generate-player {
-  margin-top: 8px;
-  width: 100%;
-}
-
-/* ---------- 循环录音 部分 播放区域 ---------- */
-.loop-input-player,
-.loop-result-player {
-  margin-top: 15px;
-}
-.loop-input-player p,
-.loop-result-player p {
-  margin: 5px 0;
-}
-
-/* 如果需要显示“循环录音”时的原始录制或返回声音播放，
-   你可以用同一个 <audio id="input-player"> 元素，或者区分成两个不同的 audio 标签。
-   上面示例将 “循环中的原始声音” 用 id="input-player-loop" 以免干扰“普通录音”的 input-player。
-*/
-#input-player-loop,
-#audio-player {
-  margin-top: 8px;
-  width: 100%;
-}
-
-/* ---------- 滑块组 ---------- */
 .slider-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 30px;
-  justify-content: center;
-  margin-top: 15px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 20px;
 }
 
-/* 每个 slider-item 内部上下排列，保持对齐 */
 .slider-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.52);
 }
 
 .slider-item label {
-  font-size: 14px;
-  color: #333;
-  margin-bottom: 4px;
+  display: block;
+  margin-bottom: 10px;
+  font-size: 0.92rem;
+  color: var(--muted);
 }
 
 .slider-item input[type="range"] {
-  width: 150px;
-  margin-bottom: 4px;
+  width: 100%;
 }
 
 .slider-item span {
-  font-size: 13px;
-  color: #555;
-  min-width: 40px;
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+@media (max-width: 980px) {
+  .task-grid,
+  .result-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .single-field-row,
+  .compact-fields,
+  .slider-group {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .page-shell {
+    padding: 18px 14px 30px;
+  }
+
+  .hero,
+  .task-card,
+  .result-card,
+  .maintenance-card {
+    padding: 18px;
+    border-radius: 20px;
+  }
+
+  button {
+    width: 100%;
+    justify-content: center;
+  }
 }

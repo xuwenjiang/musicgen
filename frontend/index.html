@@ -1,118 +1,189 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>MusicGen UX App</title>
-    <link rel="stylesheet" href="style.css" />
+    <title>MusicGen 控制台</title>
+    <link rel="stylesheet" href="style.css?v=20260328b" />
     <script src="libs/recorder.js"></script>
   </head>
   <body>
-    <h1>MusicGen UX App</h1>
-    <div id="app">
-      <!-- =======================
-           普通录音 & 生成/检索 区域（上半部分）
-           ======================= -->
-      <div class="section normal-controls">
-        <!-- 文本描述 -->
-        <textarea
-          id="description"
-          placeholder="Enter a description (e.g. 'rock cello')"
-        ></textarea>
-
-        <!-- 按钮组：普通录音 / 生成 / 索引 / 查相似 -->
-        <div class="button-group">
-          <button id="record-btn">🎙️ Start Recording</button>
-          <button id="stop-btn" disabled>⏹️ Stop Recording</button>
-          <button id="generate-btn" disabled>🎵 Generate Music</button>
-          <button id="rebuild-btn">🔄 Rebuild Index</button>
-          <button id="find-btn">🔍 Find Similar</button>
+    <div class="page-shell">
+      <header class="hero">
+        <p class="eyebrow">MusicGen Demo</p>
+        <h1>试验区</h1>
+        <p class="hero-copy">准备音频，然后生成、检索或试验。</p>
+        <div id="app-status" class="status-banner status-idle">
+          已就绪。
         </div>
+      </header>
 
-        <!-- 上传音频 + 设置生成时长 -->
-        <div class="file-duration-group">
-          <label for="file-upload">
-            Upload MP3/WAV:
-            <input type="file" id="file-upload" accept=".mp3,.wav" />
-          </label>
-          <label for="duration">
-            Audio Length (seconds):
-            <input type="number" id="duration" value="5" min="1" max="30" />
-          </label>
-        </div>
+      <main id="app">
+        <section class="workflow-stack">
+          <article class="task-card input-workflow">
+            <div class="card-head">
+              <p class="card-kicker">区域 1</p>
+              <h2>准备音频输入</h2>
+              <p>
+                这里负责准备共享的 audio input。你可以录一段，也可以上传一段；后面的生成和相似检索都会直接复用这里的音频。
+              </p>
+            </div>
 
-        <!-- 用于播放用户录制/上传的原始声音 -->
-        <div id="input-player-container">
-          <p>Your Audio:</p>
-          <audio id="input-player" controls></audio>
-        </div>
+            <div class="button-group secondary-actions">
+              <button id="record-btn">开始录音</button>
+              <button id="stop-btn" disabled>停止录音</button>
+            </div>
 
-        <!-- *新增*：生成音乐后的播放区域 -->
-        <div id ="generate-player-container">
-          <p>Generated Audio:</p>
-          <audio id="generate-player" controls></audio>
-        </div>
-      </div>
+            <div class="field-row single-field-row">
+              <label class="field-stack file-picker" for="file-upload">
+                <span>上传音频文件</span>
+                <input type="file" id="file-upload" accept=".mp3,.wav" />
+              </label>
+            </div>
 
-      <!-- =======================
-           循环录音 & 实时分段 区域（下半部分）
-           ======================= -->
-      <div class="section loop-controls">
-        <!-- 循环录音 开始/停止 按钮 -->
-        <div class="button-group">
-          <button id="start-loop-btn">▶️ Start Loop Recording</button>
-          <button id="stop-loop-btn" disabled>⏹️ Stop Loop Recording</button>
-          <button id="rebuild-slice-btn">🔄 Rebuild Slice Index</button>
-        </div>
+            <div id="audio-status" class="status-banner status-idle">
+              还没有音频输入。请先录音或上传文件。
+            </div>
 
-        <!-- 三个滑块：阈值 / 静默时长 / 最大时长 -->
-        <div class="slider-group">
-          <div class="slider-item">
-            <label for="silence-threshold">Silence Threshold (RMS):</label>
-            <input
-              type="range"
-              id="silence-threshold"
-              min="0"
-              max="0.1"
-              step="0.001"
-              value="0.01"
-            />
-            <span id="silence-threshold-display">0.010</span>
-          </div>
-          <div class="slider-item">
-            <label for="silence-duration">Silence Duration (ms):</label>
-            <input
-              type="range"
-              id="silence-duration"
-              min="0"
-              max="5000"
-              step="100"
-              value="1500"
-            />
-            <span id="silence-duration-display">1500</span>
-          </div>
-          <div class="slider-item">
-            <label for="max-segment-ms">Max Segment (ms):</label>
-            <input
-              type="range"
-              id="max-segment-ms"
-              min="1000"
-              max="10000"
-              step="100"
-              value="5000"
-            />
-            <span id="max-segment-ms-display">5000</span>
-          </div>
-        </div>
+            <div class="result-card result-source">
+              <div class="result-head">
+                <h3>当前音频输入</h3>
+                <span id="source-caption" class="result-caption">尚未准备</span>
+              </div>
+              <audio id="input-player" controls></audio>
+            </div>
+          </article>
+        </section>
 
-        <!-- 循环录音时仅播放“结果” -->
-        <div class="loop-result-player" style="margin-top:20px;">
-          <p>Result Audio:</p>
-          <audio id="audio-player" controls></audio>
-        </div>
-      </div>
+        <section class="workflow-stack task-stack">
+          <article class="result-card spotlight-card">
+            <div class="card-head">
+              <p class="card-kicker">区域 2</p>
+              <h2>用文本和时长生成新音频</h2>
+              <p>
+                这里负责生成。它会读取上面准备好的 audio input，再叠加文本提示和生成时长，输出一段新的音频结果。
+              </p>
+            </div>
+
+            <label class="field-label" for="description">文本提示（可留空）</label>
+            <textarea
+              id="description"
+              placeholder="例如：温暖的大提琴脉冲，慢拍，阴天氛围"
+            ></textarea>
+
+            <div class="field-row compact-fields">
+              <label class="field-stack" for="duration">
+                <span>生成时长（秒）</span>
+                <input type="number" id="duration" value="5" min="1" max="30" />
+              </label>
+            </div>
+
+            <div class="button-group primary-actions">
+              <button id="generate-btn" disabled>生成新音频</button>
+            </div>
+
+            <div id="generate-status" class="status-banner status-idle">
+              如果文本留空，会自动使用默认示例提示词。
+            </div>
+
+            <div class="result-head">
+              <h3>生成结果</h3>
+              <span class="result-caption">模型返回的新音频会出现在这里</span>
+            </div>
+            <audio id="generate-player" controls></audio>
+          </article>
+
+          <article class="result-card library-card">
+            <div class="card-head">
+              <p class="card-kicker">区域 3</p>
+              <h2>素材库检索与索引维护</h2>
+              <p>
+                这里负责用上面的 audio input 去找相似素材，同时也放素材库索引重建按钮。用户主流程是检索，重建索引属于维护动作。
+              </p>
+            </div>
+
+            <div class="button-group maintenance-actions">
+              <button id="find-btn" disabled>查找相似素材</button>
+              <button id="rebuild-btn">重建素材库索引</button>
+            </div>
+
+            <div id="library-status" class="status-banner status-idle">
+              准备好音频输入后，就可以查找素材库中最接近的音频。
+            </div>
+
+            <div class="result-head">
+              <h3>相似素材结果</h3>
+              <span class="result-caption">素材库中最相近的命中会出现在这里</span>
+            </div>
+            <audio id="search-player" controls></audio>
+          </article>
+        </section>
+
+        <section class="workflow-stack">
+          <article class="result-card loop-card">
+            <div class="card-head">
+              <p class="card-kicker">区域 4</p>
+              <h2>循环录制试验区</h2>
+              <p>
+                这块保留给试验流程。它会持续监听麦克风，自动切段，再把片段送到后端处理。
+              </p>
+            </div>
+
+            <div class="button-group loop-actions">
+              <button id="start-loop-btn">开始循环录制</button>
+              <button id="stop-loop-btn" disabled>停止循环录制</button>
+              <button id="rebuild-slice-btn">重建切片索引</button>
+            </div>
+
+            <div class="slider-group">
+              <div class="slider-item">
+                <label for="silence-threshold">静默阈值</label>
+                <input
+                  type="range"
+                  id="silence-threshold"
+                  min="0"
+                  max="0.1"
+                  step="0.001"
+                  value="0.01"
+                />
+                <span id="silence-threshold-display">0.010</span>
+              </div>
+              <div class="slider-item">
+                <label for="silence-duration">静默持续时间（ms）</label>
+                <input
+                  type="range"
+                  id="silence-duration"
+                  min="0"
+                  max="5000"
+                  step="100"
+                  value="1500"
+                />
+                <span id="silence-duration-display">1500</span>
+              </div>
+              <div class="slider-item">
+                <label for="max-segment-ms">单段最大时长（ms）</label>
+                <input
+                  type="range"
+                  id="max-segment-ms"
+                  min="1000"
+                  max="10000"
+                  step="100"
+                  value="5000"
+                />
+                <span id="max-segment-ms-display">5000</span>
+              </div>
+            </div>
+
+            <div id="loop-status" class="status-banner status-idle">
+              循环录制当前处于空闲状态。
+            </div>
+
+            <audio id="audio-player" controls></audio>
+          </article>
+        </section>
+      </main>
     </div>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=20260328b"></script>
   </body>
 </html>
