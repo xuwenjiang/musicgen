@@ -25,31 +25,68 @@ conda activate musicgen
 
 ## 2. Install PyTorch
 
-Choose the command matching your setup:
+If conda dependency solving is slow on your machine, install `mamba` first:
+
+```powershell
+conda install -n base -c conda-forge mamba -y
+```
+
+Then install the core packages for your setup (`mamba` recommended):
 
 - **GPU (CUDA 11.8)**
 
   ```powershell
-  conda install pytorch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 pytorch-cuda=11.8 -c pytorch -c nvidia -y
+  mamba install numpy=1.26 pytorch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 pytorch-cuda=11.8 -c pytorch -c nvidia -y
+  ```
+
+  If you prefer conda:
+
+  ```powershell
+  conda install numpy=1.26 pytorch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 pytorch-cuda=11.8 -c pytorch -c nvidia -y
   ```
 
 - **CPU only**
 
   ```powershell
-  conda install pytorch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 cpuonly -c pytorch -y
+  mamba install numpy=1.26 pytorch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 cpuonly -c pytorch -y
   ```
+
+  If you prefer conda:
+
+  ```powershell
+  conda install numpy=1.26 pytorch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 cpuonly -c pytorch -y
+  ```
+
+Quick verification:
+
+```powershell
+python -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"
+```
 
 ## 3. Install AudioCraft (MusicGen)
 
-From the project root:
+From the project root, install the Windows prerequisites first. AudioCraft needs both `ffmpeg` at runtime and `av==11.0.0` for Python-side audio I/O:
+
+```powershell
+mamba install -c conda-forge ffmpeg "av=11.0.0" -y
+```
+
+Then install AudioCraft:
 
 ```powershell
 cd audiocraft
 pip install --upgrade pip setuptools wheel
 pip install -e .
+
+# 🔒 Pin transformers to a known compatible version (newer versions may break AudioCraft)
+pip install transformers==4.38.2
 ```
 
-> This will install AudioCraft in editable mode so you can experiment with the code.
+Verify installation:
+
+```powershell
+python -c "import torch, transformers; print(torch.__version__); print(transformers.__version__)"
+```
 
 ## 4. Install backend dependencies
 
@@ -59,20 +96,20 @@ From the project root:
 cd service
 # FastAPI + core audio libraries
 pip install fastapi uvicorn python-multipart aiofiles librosa pydub soundfile
-# FFmpeg (for any on-the-fly conversions)
-conda install -c conda-forge ffmpeg -y
 
-# CLAP + FAISS pre-indexed search ===
-# If you only need CPU search: (on Windows use it)
-conda install -c conda-forge faiss-cpu -y
-# Or, for GPU-accelerated search (not available on Windows):
-conda install -c conda-forge faiss-gpu cudatoolkit=12.1 -y
+# ⚠️ IMPORTANT (Windows):
+# Do NOT install faiss-cpu from conda-forge.
+# It may downgrade MKL/TBB and break PyTorch.
+# Always use the PyPI version:
+pip install faiss-cpu
 
-# Sentence-Transformers (provides the CLAP model)
-pip install sentence-transformers
+# Verify that both torch and faiss still import correctly
+python -c "import torch, transformers, faiss; print(torch.__version__); print(transformers.__version__); print(faiss.__version__)"
 
-# You need to login huggingface and copy your huggingface token 
-huggingface-cli login
+# Check whether a Hugging Face token is already configured
+hf auth whoami
+# If you are not logged in yet, sign in with your token
+hf auth login
 ```
 
 ## 5. Install frontend dependencies
@@ -103,7 +140,7 @@ MusicGen/
 
 # Running the Service + Frontend
 
-### 1. Start the backend service
+## 1. Start the backend service
 
 In a `musicgen` shell:
 
@@ -112,7 +149,7 @@ cd service
 uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
-### 2. Open the frontend
+## 2. Open the frontend
 
 In a `musicgen` shell:
 
@@ -127,7 +164,7 @@ http-server -p 8080
 - **Prompt**: Type a text description (e.g. `"rock cello"`).
 - **Generate**: Click "Generate Music" to hear the AI-generated audio.
 
-### cURL example (PowerShell)
+## cURL example (PowerShell)
 
 ```powershell
 curl.exe -Method POST "http://localhost:8000/generate" `
